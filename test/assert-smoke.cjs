@@ -64,4 +64,9 @@ if (runtimeResults.length === 0) throw new Error('SARIF did not normalize runtim
 const runtimeUri = runtimeResults[0].locations[0].physicalLocation.artifactLocation.uri;
 if (!fs.existsSync(path.resolve(decodeURIComponent(runtimeUri)))) throw new Error('GitHub Code Scanning runtime evidence file is missing');
 
+if (process.argv[4] === 'macro') {
+  const flow = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixture', 'smoke.ptk.json'), 'utf8'));
+  require('./assert-macro.cjs').assertMacroArtifacts(outputDirectory, flow.steps.filter(step => step.enabled !== false).length);
+}
+
 process.stdout.write('PTK Action live smoke assertions passed.\n');

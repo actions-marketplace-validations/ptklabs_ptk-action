@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       pentestkit-version:
-        description: Exact published pentestkit version to validate
+        description: Exact published pentestkit version with macro support (Agent CLI and bundled Auto adapters)
         required: true
-        default: 9.9.8
+        default: 9.9.9
         type: string
 
 permissions:
@@ -19,8 +19,25 @@ concurrency:
 
 jobs:
   smoke:
+    name: PTK ${{ matrix.journey }} smoke
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - journey: crawler
+            arguments: |
+              --max-routes
+              8
+              --crawl-depth
+              2
+              --max-actions-per-route
+              4
+          - journey: macro
+            arguments: |
+              --macro-file
+              test/fixture/smoke.ptk.json
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -49,29 +66,23 @@ jobs:
           engines: DAST,IAST,SAST,SCA
           fail-on: none
           pentestkit-version: ${{ inputs.pentestkit-version }}
-          extra-args: |
-            --max-routes
-            8
-            --crawl-depth
-            2
-            --max-actions-per-route
-            4
+          extra-args: ${{ matrix.arguments }}
 
       - name: Assert PTK participation and outputs
-        run: node test/assert-smoke.cjs "${{ steps.ptk.outputs.output-dir }}" "${{ steps.ptk.outputs.sarif-file }}"
+        run: node test/assert-smoke.cjs "${{ steps.ptk.outputs.output-dir }}" "${{ steps.ptk.outputs.sarif-file }}" "${{ matrix.journey }}"
 
       - name: Upload SARIF to Code Scanning
         if: always() && steps.ptk.outputs.sarif-file != '' && hashFiles(steps.ptk.outputs.sarif-file) != ''
         uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: ${{ steps.ptk.outputs.sarif-file }}
-          category: owasp-ptk-action-live-smoke
+          category: owasp-ptk-action-${{ matrix.journey }}-smoke
 
       - name: Upload PTK artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ptk-action-live-smoke
+          name: ptk-action-${{ matrix.journey }}-smoke
           path: |
             ${{ steps.ptk.outputs.output-dir }}
             ${{ steps.ptk.outputs.sarif-file }}

@@ -1,0 +1,101 @@
+name: PTK Juice Shop Macro
+
+# Copy into your repository's .github/workflows directory. Requires Action
+# v1.1.0 or newer. Add your sanitized Full PTK recording at the path below.
+# Record against http://127.0.0.1:3001/ and prepare its account/data in the setup
+# step. Supply a pinned Juice Shop image matching the rehearsed recording.
+on:
+  workflow_dispatch:
+    inputs:
+      pentestkit-version:
+        description: Exact published macro-capable pentestkit package version
+        required: true
+        default: 9.9.9
+        type: string
+      juice-shop-image:
+        description: Pinned Juice Shop image tag or digest matching the recording
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  macro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start disposable Juice Shop
+        env:
+          JUICE_SHOP_IMAGE: ${{ inputs.juice-shop-image }}
+        run: |
+          docker run --detach --name ptk-juice-shop \
+            --publish 127.0.0.1:3001:3000 "$JUICE_SHOP_IMAGE"
+          for ((attempt = 1; attempt <= 60; attempt += 1)); do
+            if curl --fail --silent http://127.0.0.1:3001/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Prepare the recording's starting state
+        run: |
+          # Add the rehearsed account/data setup here if the recording needs it.
+          test -f test/juice-shop.ptk.json
+
+      - name: Replay Full PTK recording through PTK Agent
+        id: ptk
+        uses: ptklabs/ptk-action@v1
+        env:
+          # These names must match runtime references declared in your flow.
+          PTK_MACRO_SECRET_PASSWORD: ${{ secrets.PTK_DEMO_PASSWORD }}
+          PTK_MACRO_VAR_EMAIL: ${{ vars.PTK_DEMO_EMAIL }}
+        with:
+          target: http://127.0.0.1:3001/
+          pentestkit-version: ${{ inputs.pentestkit-version }}
+          engines: DAST,IAST,SAST,SCA
+          fail-on: none
+          extra-args: |
+            --macro-file
+            test/juice-shop.ptk.json
+
+      - name: Assert macro completion and scan export
+        env:
+          PTK_OUTPUT_DIR: ${{ steps.ptk.outputs.output-dir }}
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const read = name => JSON.parse(fs.readFileSync(path.join(process.env.PTK_OUTPUT_DIR, name), 'utf8'));
+          const plan = read('execution-plan.json');
+          assert.equal(plan.effective.journey, 'macro');
+          assert.equal(plan.effective.crawlerExecuted, false);
+          assert.equal(plan.effective.agentExecuted, false);
+          const replay = read('scenario-result.json');
+          assert.equal(replay.status, 'completed');
+          assert.equal(replay.ok, true);
+          assert.ok(replay.totalSteps > 0);
+          assert.equal(replay.completedSteps, replay.totalSteps);
+          const lifecycle = read('ptk-lifecycle-normalized.json');
+          assert.equal(lifecycle.exportSucceeded, true);
+          assert.equal(lifecycle.safeToStop, true);
+          NODE
+
+      - name: Upload reports and replay evidence
+        if: always() && steps.ptk.outputs.output-dir != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: juice-shop-macro-evidence
+          path: |
+            ${{ steps.ptk.outputs.output-dir }}
+            ${{ steps.ptk.outputs.sarif-file }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Stop disposable Juice Shop
+        if: always()
+        run: docker rm --force ptk-juice-shop
