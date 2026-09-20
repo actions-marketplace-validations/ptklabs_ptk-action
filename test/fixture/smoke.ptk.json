@@ -1,0 +1,16 @@
+{
+  "schema": "ptk-flow/v1",
+  "metadata": { "name": "PTK Action macro smoke" },
+  "startUrl": "http://127.0.0.1:4173/",
+  "variables": [],
+  "steps": [
+    { "id": "home", "type": "navigate", "url": "http://127.0.0.1:4173/" },
+    { "id": "home-ready", "type": "assertText", "locators": [{ "type": "css", "value": "h1" }], "expected": "PTK Action Fixture" },
+    { "id": "dom", "type": "navigate", "url": "http://127.0.0.1:4173/dom?value=macro-smoke&run=1" },
+    { "id": "dom-ready", "type": "assertText", "locators": [{ "type": "css", "value": "#output" }], "expected": "macro-smoke" },
+    { "id": "search", "type": "navigate", "url": "http://127.0.0.1:4173/search?q=hello" },
+    { "id": "search-value", "type": "fill", "locators": [{ "type": "css", "value": "input[name=q]" }], "data": { "kind": "literal", "value": "macro-replayed" } },
+    { "id": "search-submit", "type": "click", "locators": [{ "type": "css", "value": "form button" }] },
+    { "id": "search-result", "type": "assertText", "locators": [{ "type": "css", "value": "#result" }], "expected": "macro-replayed" }
+  ]
+}

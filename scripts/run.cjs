@@ -14,6 +14,8 @@ const OFFICIAL_NPM_REGISTRY = 'https://registry.npmjs.org/';
 const GITHUB_RUNTIME_LOCATIONS_FILE = 'github-code-scanning-runtime-findings.txt';
 const DIRECT_CREDENTIAL_FLAGS = new Set(['--username', '--password']);
 const EXTRA_ARG_SPECS = Object.freeze({
+  '--macro-file': { type: 'file' },
+  '--macro-format': { type: 'enum', values: ['auto', 'ptk-flow', 'json', 'xml', 'zest', 'side', 'chrome-recorder'] },
   '--scenario': { type: 'file' },
   '--route-hints-file': { type: 'file' },
   '--scenario-continue-on-failure': { type: 'boolean' },
@@ -231,6 +233,9 @@ function parseExtraArgs(value, context = {}) {
     const normalized = normalizeExtraArgValue(spec, optionValue, name, context);
     parsed.push(name, normalized);
     selected.set(name, normalized);
+  }
+  if (selected.has('--macro-format') && !selected.has('--macro-file')) {
+    fail('--macro-format requires --macro-file');
   }
   validateAgentArgs(selected);
   return parsed;

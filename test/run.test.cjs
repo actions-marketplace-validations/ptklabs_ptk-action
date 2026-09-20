@@ -93,6 +93,60 @@ test('accepts only reviewed newline-delimited scan and provider-agent controls',
   ]);
 });
 
+test('accepts macro paths as individual arguments relative to working-directory', t => {
+  const workspace = temporaryDirectory(t);
+  const app = path.join(workspace, 'app');
+  fs.mkdirSync(app);
+  const macro = path.join(app, 'journey $(literal); spaces.ptk.json');
+  fs.writeFileSync(macro, '{}');
+  const context = { workspace, workingDirectory: app };
+  assert.deepEqual(parseExtraArgs(`--macro-file\n${path.basename(macro)}`, context), [
+    '--macro-file', macro
+  ]);
+  for (const format of ['auto', 'ptk-flow', 'json', 'xml', 'zest', 'side', 'chrome-recorder']) {
+    assert.deepEqual(parseExtraArgs(`--macro-format=${format}\r\n--macro-file=${macro}`, context), [
+      '--macro-format', format, '--macro-file', macro
+    ]);
+  }
+});
+
+test('rejects missing, non-file, escaping, duplicate and malformed macro inputs', t => {
+  const workspace = temporaryDirectory(t);
+  const outside = temporaryDirectory(t);
+  const context = { workspace, workingDirectory: workspace };
+  const macro = path.join(workspace, 'journey.json');
+  const external = path.join(outside, 'external.json');
+  fs.writeFileSync(macro, '{}');
+  fs.writeFileSync(external, '{}');
+  fs.symlinkSync(external, path.join(workspace, 'escape.json'));
+  fs.symlinkSync(outside, path.join(workspace, 'escape-dir'), 'dir');
+  for (const value of [external, path.relative(workspace, external), 'escape.json', 'escape-dir/external.json']) {
+    assert.throws(() => parseExtraArgs(`--macro-file\n${value}`, context), /inside GITHUB_WORKSPACE/);
+  }
+  assert.throws(() => parseExtraArgs('--macro-file\nmissing.json', context), /does not exist/);
+  assert.throws(() => parseExtraArgs('--macro-file\n.', context), /regular file/);
+  assert.throws(() => parseExtraArgs('--macro-file', context), /requires a value/);
+  assert.throws(() => parseExtraArgs('--macro-format\nptk-flow', context), /requires --macro-file/);
+  assert.throws(() => parseExtraArgs('--macro-file\njourney.json\n--macro-format\njavascript', context), /must be one of/);
+  assert.throws(() => parseExtraArgs('--macro-file\njourney.json\n--macro-file=journey.json', context), /duplicates/);
+  assert.throws(() => parseExtraArgs('--macro-file\njourney.json\n--macro-format=auto\n--macro-format=json', context), /duplicates/);
+});
+
+test('forwards macro and valid conflicting journey options for Agent-owned precedence', t => {
+  const workspace = temporaryDirectory(t);
+  fs.writeFileSync(path.join(workspace, 'journey.json'), '{}');
+  fs.writeFileSync(path.join(workspace, 'scenario.md'), '# Scenario');
+  const parsed = parseExtraArgs([
+    '--macro-file', 'journey.json', '--scenario', 'scenario.md',
+    '--agent-mode', 'mock', '--max-agent-turns', '2', '--max-routes', '8'
+  ].join('\n'), { workspace, workingDirectory: workspace });
+  assert.deepEqual(parsed, [
+    '--macro-file', path.join(workspace, 'journey.json'),
+    '--scenario', path.join(workspace, 'scenario.md'),
+    '--agent-mode', 'mock', '--max-agent-turns', '2', '--max-routes', '8'
+  ]);
+});
+
 test('rejects unknown, Action-owned, destructive, direct-secret, and malformed extra arguments', t => {
   const workspace = temporaryDirectory(t);
   const context = { workspace, workingDirectory: workspace };
@@ -355,7 +409,7 @@ test('isolates npm user configuration and pins the official registry', t => {
   assert.equal(env.NPM_CONFIG_USERCONFIG, undefined);
 });
 
-test('orchestrates a local package scan and preserves SARIF on threshold failure', t => {
+for (const journey of ['crawler', 'macro']) test(`orchestrates a local package ${journey} scan and preserves SARIF on threshold failure`, t => {
   const workspace = temporaryDirectory(t);
   const runnerTemp = path.join(workspace, '.runner-temp');
   fs.mkdirSync(runnerTemp);
@@ -363,6 +417,8 @@ test('orchestrates a local package scan and preserves SARIF on threshold failure
   const githubOutput = path.join(workspace, 'github-output');
   fs.writeFileSync(packageFile, 'fixture');
   fs.writeFileSync(githubOutput, '');
+  const macro = path.join(workspace, 'recorded journey.ptk.json');
+  fs.writeFileSync(macro, '{}');
   const calls = [];
 
   function mockedCommand(command, args, options) {
@@ -411,7 +467,11 @@ test('orchestrates a local package scan and preserves SARIF on threshold failure
     PTK_INPUT_PENTESTKIT_VERSION: '9.9.8',
     PTK_INPUT_PENTESTKIT_PACKAGE: path.basename(packageFile),
     PTK_INPUT_INSTALL_BROWSERS: 'true',
-    PTK_INPUT_EXTRA_ARGS: '--max-routes\n8'
+    PTK_INPUT_EXTRA_ARGS: journey === 'macro'
+      ? '--macro-file\nrecorded journey.ptk.json\n--macro-format\nptk-flow'
+      : '--max-routes\n8',
+    PTK_MACRO_SECRET_PASSWORD: 'synthetic-macro-secret',
+    PTK_MACRO_VAR_SEARCH: 'synthetic-search-value'
   }, { runCommand: mockedCommand });
 
   assert.equal(status, 70);
@@ -427,6 +487,14 @@ test('orchestrates a local package scan and preserves SARIF on threshold failure
   assert.equal(scanCall.command, 'xvfb-run');
   assert.ok(scanCall.args.includes('--require-ptk-attack-completion'));
   assert.equal(scanCall.args[scanCall.args.indexOf('--memory-mode') + 1], 'off');
+  if (journey === 'macro') {
+    assert.equal(scanCall.args[scanCall.args.indexOf('--macro-file') + 1], macro);
+    assert.equal(scanCall.args[scanCall.args.indexOf('--macro-format') + 1], 'ptk-flow');
+    assert.equal(scanCall.env.PTK_MACRO_SECRET_PASSWORD, 'synthetic-macro-secret');
+    assert.equal(scanCall.env.PTK_MACRO_VAR_SEARCH, 'synthetic-search-value');
+    assert.ok(!scanCall.args.some(argument => argument.includes('synthetic-macro-secret')));
+    assert.doesNotMatch(fs.readFileSync(githubOutput, 'utf8'), /synthetic-macro-secret/);
+  }
 });
 
 test('normal acquisition ignores a consumer project registry and installs the exact official package', t => {

@@ -95,7 +95,7 @@ releases.
 | `pentestkit-version` | `9.9.8` | Exact npm package version. Tags and ranges are rejected. |
 | `pentestkit-package` | empty | Workspace-local `.tgz` used to validate an Agent package before npm publication. |
 | `install-browsers` | `true` | Install Chromium and Linux browser dependencies through Playwright. |
-| `extra-args` | empty | Reviewed `ptk-scan` crawl, scenario, authentication, and provider-agent controls, one argument per line. |
+| `extra-args` | empty | Reviewed `ptk-scan` macro, crawl, scenario, authentication, and provider-agent controls, one argument per line. |
 
 The `pentestkit-package` input is mainly for PTK Agent CI and release
 validation. Normal users should select an exact published version through
@@ -130,7 +130,9 @@ reviewed.
 
 Supported scan controls are:
 
-- scenario and route-hint files contained inside `GITHUB_WORKSPACE`;
+- macro, scenario and route-hint files contained inside `GITHUB_WORKSPACE`;
+- optional `--macro-format`: `auto`, `ptk-flow`, `json`, `xml`, `zest`, `side`,
+  or `chrome-recorder` (requires `--macro-file`);
 - scenario continuation, persona selection, and environment-variable-based
   username/password references;
 - explicit `--include-secrets` for authorized authenticated browser execution;
@@ -166,6 +168,57 @@ silently read or persist cross-run target state. Config replacement, custom
 browser/extension/profile paths, output or lifecycle overrides, direct
 credentials, aggressive/destructive modes, and unknown options fail before the
 scan starts.
+
+## Recorded macro scans
+
+Record a journey in Full PTK, export it, and pass the same file to the Action.
+The installed Agent imports and replays it while the selected security engines
+run. Macro mode is exclusive: Agent skips scenario, crawler and LLM expansion
+when a macro is supplied, and reports conflicting journey selections in its
+execution plan. The Action keeps its strict completion and report requirements.
+
+```yaml
+- name: Replay the recorded PTK journey
+  id: ptk
+  uses: ptklabs/ptk-action@v1
+  env:
+    PTK_MACRO_SECRET_PASSWORD: ${{ secrets.PTK_DEMO_PASSWORD }}
+    PTK_MACRO_VAR_EMAIL: ${{ vars.PTK_DEMO_EMAIL }}
+  with:
+    target: http://127.0.0.1:3001/
+    pentestkit-version: 9.9.9
+    engines: DAST,IAST,SAST,SCA
+    extra-args: |
+      --macro-file
+      test/juice-shop.ptk.json
+```
+
+Macro support requires both a macro-capable Agent CLI and the macro adapters in
+its bundled Auto artifact. Use Action `v1.1.0` or the maintained `v1` tag and
+select `pentestkit-version: 9.9.9` explicitly for macros. The Action's general
+default remains 9.9.8 for existing workflows. The workspace `.tgz` input can
+validate a candidate package before release.
+
+Paths are relative to `working-directory`; absolute paths are allowed only
+inside `GITHUB_WORKSPACE`. Missing files, directories, duplicate options and
+symlinks escaping the workspace are rejected. Auto-detection is the default;
+add `--macro-format` only when an explicit import format is needed. Framework
+code exports are not replay inputs.
+
+Use the same exact target origin as the recording, including scheme, hostname
+and port: `localhost` and `127.0.0.1` are different origins. Keep the target's
+initial state consistent with the recorded journey.
+
+The environment names above apply when the flow declares a secret variable
+`PASSWORD` and a regular variable `EMAIL`. Setting an environment variable does
+not replace a literal already recorded in the file. Remove recorded credentials
+before putting a flow in the repository and use the flow's runtime references.
+No extra username/password arguments are needed when the macro performs login.
+
+See [the Juice Shop macro workflow](examples/juice-shop-macro.yml) for a complete
+local-target CI example. The manually triggered live smoke workflow validates
+crawler and macro rows separately. Its macro gate checks every replay step,
+exclusive execution, scan/export drainage and findings from all four engines.
 
 ## Provider-assisted scans
 

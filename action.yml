@@ -51,7 +51,7 @@ inputs:
     required: false
     default: "true"
   extra-args:
-    description: Reviewed ptk-scan crawl, scenario, authentication, and agent controls, one argument per line. Unknown, Action-owned, direct-credential, aggressive, and destructive flags are rejected; see the README.
+    description: Reviewed ptk-scan macro, crawl, scenario, authentication, and agent controls, one argument per line. Unknown, Action-owned, direct-credential, aggressive, and destructive flags are rejected; see the README.
     required: false
     default: ""
 
